@@ -1,4 +1,4 @@
-function varargout = p4(varargin)
+function varargout = p4Kristian(varargin)
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -132,6 +132,45 @@ handles = update_GUI(handles);
 set(handles.original_button,'value',1);
 set(handles.plot_selection,'value',2);
 
+function scale_selection_list_Callback(hObject, eventdata, handles)
+% hObject    handle to scale_selection_list (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+% Hints: contents = get(hObject,'String') returns scale_selection_list contents as cell array
+%        contents{get(hObject,'Value')} returns selected item from scale_selection_list
+scale = get(handles.scale_selection_list,'String');
+scale = scale{get(handles.scale_selection_list,'Value')};
+if strcmp(scale,'CUSTOM')
+    
+else
+    handles.scale_options.scale = scale;
+    [handles.scale_options.indices,...
+        handles.scale_options.freqs,...
+        handles.scale_options.notes,...
+        handles.scale_options.fund_index] = ...
+        get_scale(handles.scale_options.scale);
+end
+handles = update_plot(handles);
+guidata(hObject, handles);
+% --- Executes during object creation, after setting all properties.
+function scale_selection_list_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to scale_selection_list (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+% Hint: popupmenu controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+if handles.status.isreset
+    [indices,freqs,notes,fund_index] = get_scale();
+    set(handles.scale_selection_list,'String',[indices,'CUSTOM']);
+    I = find(strcmp(indices,handles.scale_options.scale));
+    if ~isempty(I)
+        set(handles.scale_selection_list,'Value',I);
+    end
+end
 
 
 function handles = update_plot(handles)
@@ -1211,9 +1250,11 @@ for n = 1:length(Imax);
     end
 end
 
-function [indices,freqs,notes,fund_index] = get_scale(~)
+function [indices,freqs,notes,fund_index] = get_scale(scale)
 
 fund_index = [];
+freqs = [];
+notes = {};
 indices = [];
 
 major_indices = [0 2 4 5 7 9 11];
@@ -1223,6 +1264,27 @@ fund_indices = [0 2 3 5 7 8 10];
 fund_notes = {'A' 'B' 'C' 'D' 'E' 'F' 'G'};
 scale_types = {'major','minor'};
 
+
+if nargin < 1 || isempty(scale)
+    % Return all possiblities of scales
+    indices = {};
+    for n = 1:length(fund_notes)
+        for m = 1:2
+            indices{end+1} = [fund_notes{n} scale_types{m}];
+        end
+    end
+    return
+else
+    fund_index = fund_indices(strcmp(scale(1),fund_notes));
+    if strcmp(scale(2:end),'major')
+        indices = major_indices+fund_index;
+    elseif strcmp(scale(2:end),'minor')
+        indices = minor_indices+fund_index;
+    else
+        disp('ERROR in get_scale.m: unknown scale!')
+        return
+    end
+end
 
 
 
