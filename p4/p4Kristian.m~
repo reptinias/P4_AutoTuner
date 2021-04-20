@@ -289,8 +289,8 @@ while handles.status.isrecording == true
     handles = update_plot(handles);
     handles = update_GUI(handles);
     guidata(hObject, handles);
-    
-
+        
+        
         
 
 
@@ -909,7 +909,6 @@ guidata(hObject, handles);
 handles = update_plot(handles);
 set(gcf,'WindowButtonMotionFcn','');
 set(gcf,'WindowButtonUpFcn','');
-
 
 
 
