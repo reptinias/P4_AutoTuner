@@ -994,6 +994,7 @@ scale_factor = sum(abs(Achunk))*2;
 Nshifts = Nshift_min:Nshift_max;
 Tshifts = Nshifts / Fs;
 
+
 % Shift and calculate a makeshift autocorrelation
 acorr = zeros(1,length(Nshifts));
 index = 1;

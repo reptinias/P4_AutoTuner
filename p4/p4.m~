@@ -1,4 +1,4 @@
-function varargout = p4Kristian(varargin)
+function varargout = p4(varargin)
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -124,14 +124,13 @@ handles.status.Ylim = [];
     handles.scale_options.freqs,...
     handles.scale_options.notes,...
     handles.scale_options.fund_index] = ...
-    get_scale('Cmajor');
+    get_scale(handles.scale_options.scale);
 
 handles.status.isreset = true;
 handles = update_GUI(handles);
 
 set(handles.original_button,'value',1);
 set(handles.plot_selection,'value',2);
-
 
 
 
@@ -255,44 +254,15 @@ function record_button_Callback(hObject, ~, handles)
 global initFs
 global nbits
 global nchans
-global precision
-handles.record_obj = audiorecorder(initFs,...
-    nbits,nchans);
-record(handles.record_obj);
+try
+    handles.record_obj = audiorecorder(initFs,...
+        nbits,nchans);
+    record(handles.record_obj);
 
-handles.status.isrecording = true;
+    handles.status.isrecording = true;
 
-while handles.status.isrecording == true
-    
-    if isempty(handles.sound.A) == 0
-        handles.sound.A = getaudiodata(handles.record_obj,...
-        precision);
-    else
-        handles.sound.A = [];
-    end
-    
-    % Save sampling frequency
-    handles.sound.Fs = initFs;
-    
-    % Calculate time vector
-    handles.sound.t = (0:length(handles.sound.A)-1)./initFs;
-        
-    handles = run_pitch_detection(handles);
-    handles.status.isview = true;
-    handles = update_plot(handles);
     handles = update_GUI(handles);
     guidata(hObject, handles);
-        
-    %handles = run_pitch_correction(handles);
-    
-    handles.status.isview = true;
-    handles = update_plot(handles);
-    handles = update_GUI(handles);
-    guidata(hObject, handles);
-        
-        
-        
-
 
 end
 
@@ -303,15 +273,15 @@ function stop_button_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 global initFs
+global precision
 
-
-if handles.status.isrecording == true
+if handles.status.isrecording
     stop(handles.record_obj);
     handles.status.isrecording = false;
     
     % Get the waveform
-    %handles.sound.A = getaudiodata(handles.record_obj,...
-        %precision);
+    handles.sound.A = getaudiodata(handles.record_obj,...
+        precision);
     
     % Save sampling frequency
     handles.sound.Fs = initFs;
@@ -322,11 +292,11 @@ if handles.status.isrecording == true
     
     
     
-    %handles = run_pitch_detection(handles);
-    %handles.status.isview = true;
-    %handles = update_plot(handles);
-    %handles = update_GUI(handles);
-    %guidata(hObject, handles);
+    handles = run_pitch_detection(handles);
+    handles.status.isview = true;
+    handles = update_plot(handles);
+    handles = update_GUI(handles);
+    guidata(hObject, handles);
     
 end
 
@@ -352,32 +322,7 @@ else
     A = handles.sound.A_corrected;
 end
 
-function plot_selection_Callback(hObject, eventdata, handles)
-% hObject    handle to plot_selection (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 
-% Hints: contents = get(hObject,'String') returns plot_selection contents as cell array
-%        contents{get(hObject,'Value')} returns selected item from plot_selection
-
-if isempty(handles.sound.A_corrected)
-    handles = run_pitch_correction(handles);
-end
-handles = update_plot(handles);
-guidata(hObject, handles);
-
-% --- Executes during object creation, after setting all properties.
-% //waveform plot
-function plot_selection_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to plot_selection (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
-
-% Hint: popupmenu controls usually have a white background on Windows.
-%       See ISPC and COMPUTER.
-if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
-    set(hObject,'BackgroundColor','white');
-end
 
 handles.status.isplaying = true;
 handles = update_GUI(handles);
@@ -429,6 +374,33 @@ clear A;
 axes(handles.axes2);
 
 
+% --- Executes on selection change in plot_selection. //waveform plot
+function plot_selection_Callback(hObject, eventdata, handles)
+% hObject    handle to plot_selection (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: contents = get(hObject,'String') returns plot_selection contents as cell array
+%        contents{get(hObject,'Value')} returns selected item from plot_selection
+
+if isempty(handles.sound.A_corrected)
+    handles = run_pitch_correction(handles);
+end
+handles = update_plot(handles);
+guidata(hObject, handles);
+
+% --- Executes during object creation, after setting all properties.
+% //waveform plot
+function plot_selection_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to plot_selection (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: popupmenu controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
 
 
 % --- Executes on button press in original_button.
@@ -471,8 +443,8 @@ end
 snap_direction = get(gcbo,'String');
 
 % Pull out the frequency and time of the selected points
-I = handles.sound
-sp = handles.sound(I(1):I(end));
+I = find(handles.sound.selected_points);
+sp = handles.sound.selected_points(I(1):I(end));
 f0 = handles.sound.f0_corrected(I(1):I(end));
 t = handles.sound.tcalc(I(1):I(end));
 t = t-t(1);
@@ -593,12 +565,23 @@ f0_target = [];                         % For keeping track of the target for th
 f0_samples = floor...                   % Figure out how many f0 samples there will be
     (0.08/(step/handles.sound.Fs));
 
+% Waitbar stuff
+hwait = waitbar(0,'Determining pitch...');
+set(hwait,'Name','Please Wait');
+waitbar_count = 0;
+waitbar_update = round(N/10);
+pause(0.001);
+
 %tic
 I = 1;
 for n = 1:N
     
-    
-    
+    % Update waitbar
+    if waitbar_count > waitbar_update
+        waitbar(n/N,hwait);
+        waitbar_count = 0;
+    end
+    waitbar_count = waitbar_count + 1;
     
     % Extract a block of the wav file
     Atemp = handles.sound.A(I:I+block-1);
@@ -686,10 +669,22 @@ N = length(f0);
 max_acorr_shift = 0;
 max_acorr_amp = 0;  
 
+% Waitbar stuff
+hwait = waitbar(0,'Correcting pitch...');
+set(hwait,'Name','Please Wait');
+waitbar_count = 0;
+waitbar_update = round(N/10);
+pause(0.001);
 
 I = 1;
 for n = 1:N
     
+    % Update waitbar
+    if waitbar_count > waitbar_update
+        waitbar(n/N,hwait);
+        waitbar_count = 0;
+    end
+    waitbar_count = waitbar_count + 1;
 
     % Pull out a chunk of the signal
     Atemp = A(I:I+block-1);
@@ -999,6 +994,7 @@ scale_factor = sum(abs(Achunk))*2;
 Nshifts = Nshift_min:Nshift_max;
 Tshifts = Nshifts / Fs;
 
+
 % Shift and calculate a makeshift autocorrelation
 acorr = zeros(1,length(Nshifts));
 index = 1;
@@ -1216,11 +1212,9 @@ for n = 1:length(Imax);
     end
 end
 
-function [indices,freqs,notes,fund_index] = get_scale(scale)
+function [indices,freqs,notes,fund_index] = get_scale(~)
 
 fund_index = [];
-freqs = [];
-notes = {};
 indices = [];
 
 major_indices = [0 2 4 5 7 9 11];
@@ -1230,27 +1224,6 @@ fund_indices = [0 2 3 5 7 8 10];
 fund_notes = {'A' 'B' 'C' 'D' 'E' 'F' 'G'};
 scale_types = {'major','minor'};
 
-
-if nargin < 1 || isempty(scale)
-    % Return all possiblities of scales
-    indices = {};
-    for n = 1:length(fund_notes)
-        for m = 1:2
-            indices{end+1} = [fund_notes{n} scale_types{m}];
-        end
-    end
-    return
-else
-    fund_index = fund_indices(strcmp(scale(1),fund_notes));
-    if strcmp(scale(2:end),'major')
-        indices = major_indices+fund_index;
-    elseif strcmp(scale(2:end),'minor')
-        indices = minor_indices+fund_index;
-    else
-        disp('ERROR in get_scale.m: unknown scale!')
-        return
-    end
-end
 
 
 
@@ -1338,5 +1311,3 @@ if ~isempty(note)
         notes = notes(note+1);
     end
 end
-
-indices()
