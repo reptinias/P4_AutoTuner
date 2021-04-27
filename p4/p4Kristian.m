@@ -256,42 +256,43 @@ global initFs
 global nbits
 global nchans
 global precision
-handles.record_obj = audiorecorder(initFs,...
-    nbits,nchans);
-record(handles.record_obj);
+
 
 handles.status.isrecording = true;
 
 while handles.status.isrecording == true
     
-    if isempty(handles.sound.A) == 0
+    try
+        handles.record_obj = audiorecorder(initFs,...
+        nbits,nchans);
+        record(handles.record_obj);
         handles.sound.A = getaudiodata(handles.record_obj,...
         precision);
-    else
-        handles.sound.A = [];
+        A = handles.sound.A;
+        p = audioplayer(A, handles.sound.Fs); 
+        play(p);
     end
     
     % Save sampling frequency
-    handles.sound.Fs = initFs;
+    %handles.sound.Fs = initFs;
     
     % Calculate time vector
-    handles.sound.t = (0:length(handles.sound.A)-1)./initFs;
+    %handles.sound.t = (0:length(handles.sound.A)-1)./initFs;
         
-    handles = run_pitch_detection(handles);
-    handles.status.isview = true;
-    handles = update_plot(handles);
-    handles = update_GUI(handles);
-    guidata(hObject, handles);
+    %handles = run_pitch_detection(handles);
+    %handles.status.isview = true;
+    %handles = update_plot(handles);
+    %handles = update_GUI(handles);
+    %guidata(hObject, handles);
         
     %handles = run_pitch_correction(handles);
     
-    handles.status.isview = true;
-    handles = update_plot(handles);
-    handles = update_GUI(handles);
+    %handles.status.isview = true;
+    %handles = update_plot(handles);
+    %handles = update_GUI(handles);
     guidata(hObject, handles);
     
-
-        
+    
 
 
 end
@@ -306,6 +307,7 @@ global initFs
 
 
 if handles.status.isrecording == true
+    
     stop(handles.record_obj);
     handles.status.isrecording = false;
     
