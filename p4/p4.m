@@ -1,4 +1,4 @@
-function varargout = p4(varargin)
+function varargout = p4(varargin) %this is the setup code for the figure and initializes the callbacks
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -17,11 +17,40 @@ if nargout
 else
     gui_mainfcn(gui_State, varargin{:});
 end
+
+
 % End initialization code - DO NOT EDIT
 
 
-% --- Executes just before visuals
-function p4_OpeningFcn(hObject, eventdata, handles, varargin)
+% Static values
+global Fmin % Minimun frequency
+Fmin = 50;
+global Fmax % Maximum frequency
+Fmax = 600;
+global threshold_amp  % Minimum amplitude for a peak in order for autocorrelation to be called - the higher number the less peaks it will accept
+threshold_amp = 0.2;
+global harmonic_deviation % Max deviation from fundemental frequency in order to be harmonic (in %)
+harmonic_deviation = 0.2;
+global threshold_ratio % Max ratio in heights of autocorr allowed between fundamental and harmonics
+threshold_ratio = 0.4;
+global f0_target_sample_time % sample time from the previous f0 to be used to decide the next f0
+f0_target_sample_time = 0.08;
+global target_tol  % Max change from previous f0 to target f0 (in%)
+target_tol = 0.3;
+global initFs % Sampling frequency (Hz)
+initFs = 44000;
+global nbits % Bits per sample (can look up audio bit depth for details)(this can be reduced to 8 to save computational power
+nbits = 16;
+global precision % Save as single precision vector
+precision = 'single';
+global nchans  % Single audio channel (mono)
+nchans = 1;
+global initscale_factor %factor of how much to scale when compressing the signal (1 keeps it - 0 makes it completely pitch accurate) 
+initscale_factor = 0.15;
+
+% --- Executes just before visuals - setup all of the handles for the
+% software and the figure
+function p4_OpeningFcn(hObject, ~, handles, varargin)
 % This function has no output args, see OutputFcn.
 % hObject    handle to figure
 % eventdata  reserved - to be defined in a future version of MATLAB
@@ -30,12 +59,8 @@ function p4_OpeningFcn(hObject, eventdata, handles, varargin)
 
 % Choose default command line output for project
 handles.output = hObject;
-
-handles.version = '0.1';
-
 set(handles.axes1,'XTickLabel',{});
 set(handles.axes1,'YTickLabel',{});
-
 
 % Axes2 is just for mouse click input
 set(handles.axes2,'XTick',[]);
@@ -45,53 +70,22 @@ set(handles.axes2,'YTickLabel',{});
 set(handles.axes2,'ButtonDownFcn','p4(''mouseclick'',gcbo,[],guidata(gcbo))');
 
 
-% Set defaults for the program
+% Set defaults for the program - retrived from set_default function
 handles = set_defaults(handles);
 
 % Update handles structure
 guidata(hObject, handles);
 
-
-% Pitch detection settings
-global Fmin % Min frequency to search
-Fmin = 50;
-global Fmax % Max frequency to search
-Fmax = 600;
-global block_length	% Length of each chuck to analyze for frequency
-block_length = 0.04;
-global step_per_block  % What fraction of the block width to step for each pitch detect
-step_per_block = 2;
-global threshold_amp  % Threshold of autocorr to be called a peak
-threshold_amp = 0.25;
-global harmonic_deviation % Max deviation from multiple fundamental to be considered a harmonic (0.2 = +/- 20%)
-harmonic_deviation = 0.2;
-global threshold_ratio % Max ratio in heights of autocorr allowed between fundamental and harmonics
-threshold_ratio = 0.6;
-global f0_target_sample_time % Over what time interval to sample previous freq's to determine next target f0
-f0_target_sample_time = 0.08;
-global target_tol  % Max tolerance from f0 target (0.2 = +/-20%)
-target_tol = 0.3;
-global initFs % Sampling frequency (Hz)
-initFs = 44000;
-global nbits % Bits of precision
-nbits = 16;
-global precision % Save as single precision vector
-precision = 'single';
-global nchans  % Single audio channel (mono)
-nchans = 1;
-global initscale_factor 
-initscale_factor = 0.2;
-
+%setup of the default handles for the software
 function handles = set_defaults(handles)
 
-% Scale defaults
-handles.scale_options.scale = 'Cmajor';         % Scale for pitch correction
-handles.scale_options.indices = [];
+% Scale setup 
+handles.scale_options.indices = [];    
 handles.scale_options.freqs = [];
 handles.scale_options.notes = {};
 handles.scale_options.fund_index = [];
 
-% Initialize objects for record and playback
+% recording object and playback object
 handles.record_obj = [];
 handles.play_obj = [];
 
@@ -104,7 +98,6 @@ handles.sound.f0 = [];
 handles.sound.f0_save = [];
 handles.sound.f0_corrected = [];
 handles.sound.f0_corrected_save = [];
-handles.sound.scale_factor = [];
 handles.sound.tcalc = [];
 handles.sound.selected_points = logical([]);
 handles.sound.selected_points_save = logical([]);
@@ -122,51 +115,21 @@ handles.status.Ylim = [];
 
 [handles.scale_options.indices,...
     handles.scale_options.freqs,...
-    handles.scale_options.notes,...
-    handles.scale_options.fund_index] = ...
-    get_scale(handles.scale_options.scale);
+    handles.scale_options.notes] = ...
+    get_scale('Cmajor');
 
-handles.status.isreset = true;
 handles = update_GUI(handles);
-
 set(handles.original_button,'value',1);
 set(handles.plot_selection,'value',2);
 
-
-
+%setup in order to update the plot - did so it's always on pitch to make
+%code shorter and we don't need waveform
 function handles = update_plot(handles)
 
 val = get(handles.plot_selection,'value');
 axes(handles.axes1);
 
-if val == 1
-    if ~isempty(handles.sound.t) && ~isempty(handles.sound.A)
-        hplot = [];
-        legends = {};
-        if ~isempty(handles.sound.A_corrected)
-            hplot(1) = plot(handles.axes1,handles.sound.t,handles.sound.A,'color',[0.7 0.7 0.7]);
-        else
-            hplot(1) = plot(handles.axes1,handles.sound.t,handles.sound.A,'color','b');
-        end
-        legends{1} = 'Original';
-        if ~isempty(handles.sound.A_corrected)
-            hold on
-            hplot(2) = plot(handles.axes1,handles.sound.t,handles.sound.A_corrected,'color','b');
-            legends{2} = 'Modified';
-            hold off
-        end
-        if isempty(handles.status.Xlim)
-            set(handles.axes1,'Xlim',[min(handles.sound.t) max(handles.sound.t)]);
-        else
-            set(handles.axes1,'Xlim',handles.status.Xlim);
-        end
-        dA = max(handles.sound.A)-min(handles.sound.A);
-        set(handles.axes1,'Ylim',[min(handles.sound.A)-0.1*dA max(handles.sound.A)+0.1*dA]);
-        %legend(hplot,legends);
-    else
-        cla
-    end
-elseif val == 2
+if val == 2
     if ~isempty(handles.sound.tcalc) && ~isempty(handles.sound.f0)
         hplot = [];
         f0 = handles.sound.f0;
@@ -177,13 +140,11 @@ elseif val == 2
             waitfor(hwarn);
         else
             hplot(1) = semilogy(handles.axes1,handles.sound.tcalc,f0,'.-','color',[0.7 0.7 0.7]);
-            %legends{1} = 'Original';
             if ~isempty(handles.sound.f0_corrected)
                 hold on
                 f02 = handles.sound.f0_corrected;
                 f02(f02 < 1) = NaN;
                 hplot(2) = semilogy(handles.axes1,handles.sound.tcalc,f02,'.-','color','b');
-                %legends{2} = 'Modified';
                 
                 if any(handles.sound.selected_points)
                     f03 = f02;
@@ -194,11 +155,6 @@ elseif val == 2
                 hold off
             end
             grid on
-%             factors = [1.2,10];
-%             tmp = min(f0)./factors;
-%             Ylim(1) = max(tmp(tmp <= min(f02)));
-%             tmp = max(f0).*factors;
-%             Ylim(2) = min(tmp(tmp >= max(f02)));
             Ylim = [min(f0)/1.2 max(f0)*1.2];
             set(handles.axes1,'Ylim',Ylim);
             set(handles.axes1,'Ytick',handles.scale_options.freqs);
@@ -208,7 +164,6 @@ elseif val == 2
             else
                 set(handles.axes1,'Xlim',handles.status.Xlim);
             end
-            %legend(hplot,legends);
         end
     else
         cla
@@ -225,6 +180,8 @@ axes(handles.axes2);
 
 clear f0 f02 f03
 
+%function for the mode the program is in and how the buttons should be
+%available or not
 function handles = update_GUI(handles)
 
 if handles.status.isrecording
@@ -245,11 +202,9 @@ else
     set(handles.stop_button,'enable','off');
 end
     
-
 % --- Executes on button press in record_button.
 function record_button_Callback(hObject, ~, handles)
 % hObject    handle to record_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 global initFs
 global nbits
@@ -266,11 +221,9 @@ try
 
 end
 
-
 % --- Executes on button press in stop_button.
-function stop_button_Callback(hObject, eventdata, handles)
+function stop_button_Callback(hObject, ~, handles)
 % hObject    handle to stop_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 global initFs
 global precision
@@ -300,12 +253,9 @@ if handles.status.isrecording
     
 end
 
-
-
 % --- Executes on button press in play_button.
-function play_button_Callback(hObject, eventdata, handles)
+function play_button_Callback(hObject, ~, handles)
 % hObject    handle to play_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
 % Decide which to play
@@ -348,8 +298,6 @@ hline = line(tmin.*[1 1],[Ylim],'color','r');
 pause(0.1);
 
 % Start playing the wave file
-% Note: Updated wavplay to audioplayer on 12/10/12 for cross-platform functionality
-%wavplay(A,handles.sound.Fs,'async');
 p = audioplayer(A, handles.sound.Fs); 
 play(p);
 tic;
@@ -375,13 +323,9 @@ axes(handles.axes2);
 
 
 % --- Executes on selection change in plot_selection. //waveform plot
-function plot_selection_Callback(hObject, eventdata, handles)
+function plot_selection_Callback(hObject, ~, handles)
 % hObject    handle to plot_selection (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-
-% Hints: contents = get(hObject,'String') returns plot_selection contents as cell array
-%        contents{get(hObject,'Value')} returns selected item from plot_selection
 
 if isempty(handles.sound.A_corrected)
     handles = run_pitch_correction(handles);
@@ -390,26 +334,18 @@ handles = update_plot(handles);
 guidata(hObject, handles);
 
 % --- Executes during object creation, after setting all properties.
-% //waveform plot
-function plot_selection_CreateFcn(hObject, eventdata, handles)
+% sets the colors of the background
+function plot_selection_CreateFcn(hObject, ~, ~)
 % hObject    handle to plot_selection (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
 
-% Hint: popupmenu controls usually have a white background on Windows.
-%       See ISPC and COMPUTER.
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
 
 
 % --- Executes on button press in original_button.
-function original_button_Callback(hObject, eventdata, handles)
-% hObject    handle to original_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
+function original_button_Callback(hObject, ~, handles)
 % handles    structure with handles and user data (see GUIDATA)
-
-% Hint: get(hObject,'Value') returns toggle state of original_button
 
 set(handles.original_button,'val',1);
 set(handles.modified_button,'val',0);
@@ -429,18 +365,15 @@ set(handles.modified_button,'val',1);
 
 
 
-% --- Executes on button press in snap_down_button.
-function snap_button_Callback(hObject, eventdata, handles)
-% hObject    handle to snap_down_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
+% --- Executes on button press in nearest pitch button.
+function nearest_pitch_button_Callback(hObject, ~, handles)
 
 if isempty(handles.sound.f0_corrected) || ~any(handles.sound.selected_points) ||...
         isempty(handles.scale_options.freqs);
     return
 end
 
-snap_direction = get(gcbo,'String');
+pitch_direction = get(gcbo,'String');
 
 % Pull out the frequency and time of the selected points
 I = find(handles.sound.selected_points);
@@ -461,10 +394,10 @@ end
 
 tmp = f0(where:end);
 mean_f0 = 10^mean(log10(tmp(sp(where:end))));
-if strcmp(snap_direction,'Down')
+if strcmp(pitch_direction,'Down')
     Iu = find(handles.scale_options.freqs < 0.99*mean_f0);
     mean_new = max(handles.scale_options.freqs(Iu));
-elseif strcmp(snap_direction,'Up')
+elseif strcmp(pitch_direction,'Up')
     Iu = find(handles.scale_options.freqs > 1.01*mean_f0);
     mean_new = min(handles.scale_options.freqs(Iu));
 end
@@ -490,25 +423,21 @@ clear t f0 what where factor
 
 
 % --- Executes on button press in apply_compress_button.
-function apply_compress_button_Callback(hObject, eventdata, handles)
-% hObject    handle to apply_compress_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
+function cleaner_button_Callback(hObject, ~, handles)
 global initscale_factor
                   
 if isempty(handles.sound.f0_corrected) || ~any(handles.sound.A)
     return
 end
 
-% Pull out the frequency and time of the selected points
+% get frequency and correlating time of the points selected
 f0 = handles.sound.f0_corrected(handles.sound.selected_points);
 I = find(handles.sound.selected_points);
 t = handles.sound.tcalc(I(1):I(end));
 t = t-t(1);
 
-% Come up with a envelope for compressing that goes from 1 down to the
-% desired compression factor over the desired time interval
+% compress the signal down to the desired factor which has been selected in
+% initscale_factor
 factor = ones(size(t)).*initscale_factor;
 if 0 > t(2)
     [what,where] = min(abs(t - 0));
@@ -516,7 +445,8 @@ if 0 > t(2)
 end
 factor = factor(handles.sound.selected_points(I(1):I(end)));
 
-% Scale the deviations around the mean in a log sense
+% find the deviations and put them in logarithmic form and take the mean of
+% this in order to a
 f0 = 10.^(mean(log10(f0)) + factor.*(log10(f0)-mean(log10(f0))));
 handles.sound.f0_corrected_save(end+1,:) = handles.sound.f0_corrected;
 handles.sound.f0_save(end+1,:) = handles.sound.f0;
@@ -534,47 +464,42 @@ clear t f0 what where factor
 
 
 function handles = run_pitch_detection(handles)
-% hObject    handle to pitch_detect_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-global Fmin % Min frequency to search
-global Fmax % Max frequency to search
-global threshold_amp  % Threshold of autocorr to be called a peak
-global harmonic_deviation % Max deviation from multiple fundamental to be considered a harmonic (0.2 = +/- 20%)
-global threshold_ratio % Max ratio in heights of autocorr allowed between fundamental and harmonics
-global target_tol  % Max tolerance from f0 target (0.2 = +/-20%)
+global Fmin 
+global Fmax 
+global threshold_amp  
+global harmonic_deviation 
+global threshold_ratio 
+global target_tol  
 
-if isempty(handles.sound.A)
+if isempty(handles.sound.A) %ensures if there's no signal it doesn't run the pitch detection but stops.
     return
 end
 
 plot_on = false;
 
+block = 2*round(0.04*handles.sound.Fs/2);  % takes a block of the signal to find the pitch (this can be changed according to what makes sense)
+step = block/2; % how many steps in each block, this is how many values from peak to peak
 
-
-block = 2*round(0.04*handles.sound.Fs/2);     % Size of each block to find pitch
-step = block/2;                         % Step (blocks are 4 times larger than "steps"
-
-N = floor((length(handles.sound.A)-block)/step);      % Number of frequency computations
+N = floor((length(handles.sound.A)-block)/step); % Number of frequency computations to be done according to the size of signal and block/step amount
 
 % Initialize variables for storing results
-f0 = zeros(1,N);                        % Initialize vector for storing frequencies
-tcalc = zeros(1,N);                     % The time at which that frequency calculation is valid
-f0_target = [];                         % For keeping track of the target for the next calculation
+f0 = zeros(1,N);                        % making a 1D vector which is the size of the maximum amount of results, fills it up with 0 for now
+tcalc = zeros(1,N);                     % same as before, making a 1D vector that stores the time value of calculated results size of max computations
+f0_target = [];                         % to know what block of signal will be the next one computed
 
-f0_samples = floor...                   % Figure out how many f0 samples there will be
+f0_samples = floor...                   % figures out how many f0 samples there will be, rounded down towards nearest whole number.
     (0.08/(step/handles.sound.Fs));
 
-% Waitbar stuff
+% makes waitbar for visual purpouses 
 hwait = waitbar(0,'Determining pitch...');
 set(hwait,'Name','Please Wait');
 waitbar_count = 0;
 waitbar_update = round(N/10);
 pause(0.001);
 
-%tic
-I = 1;
-for n = 1:N
+
+I = 1;  %initialises I which is used to know how many blocks have been through, to calculate the following block etc. 
+for n = 1:N         %starts a for loop which runs from 0 and until it has gone through every computation as declared with N before
     
     % Update waitbar
     if waitbar_count > waitbar_update
@@ -583,14 +508,16 @@ for n = 1:N
     end
     waitbar_count = waitbar_count + 1;
     
-    % Extract a block of the wav file
-    Atemp = handles.sound.A(I:I+block-1);
-    ttemp = handles.sound.t(I:I+block-1);
+    % extracts the block of signal that will be processed in this
+    % itteration
+    Atemp = handles.sound.A(I:I+block-1); %makes matrix with the signal values that goes from I -> the end of this block being processed -1
+    ttemp = handles.sound.t(I:I+block-1); %same here just with time instead of the signal
     I = I+step;
     
-    % Do the autocorrelation to find the frequency
+    % call the find_f0_timedomain function to find the frequency -
+    % important that n isn't confused with N.
     [f0(n),acorr,Nshifts,Tshifts] = ...
-        find_f0_timedomain2(Atemp,handles.sound.Fs,Fmin,Fmax,...
+        find_f0_timedomain(Atemp,handles.sound.Fs,Fmin,Fmax,...
         threshold_amp,threshold_ratio,harmonic_deviation,...
         f0_target,target_tol);
     tcalc(n) = median(ttemp);
@@ -613,8 +540,8 @@ for n = 1:N
         end
     end
             
-    % Look at the last few samples to determine the target frequency for
-    % the next iteration
+    % check previous samples to decide target frequency for next
+    % computation in order for the signal to be continous.
     if n >= f0_samples
         f0_chunk = f0(n-f0_samples+1:n);
         f0_target = f0_chunk(f0_chunk>0);
@@ -625,7 +552,6 @@ for n = 1:N
     
     
 end
-%toc
 
 if ishandle(hwait)
     close(hwait);
@@ -644,10 +570,8 @@ handles.sound.block = block;
 handles.sound.step = step;
     
 function handles = run_pitch_correction(handles)
-% hObject    handle to pitch_detect_button (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-global Fmin % Min frequency to search
+global Fmin 
+global initscale_factor
 
 if isempty(handles.sound.A)
     return
@@ -662,14 +586,14 @@ f02 = handles.sound.f0_corrected;
 Fs = handles.sound.Fs;
 scale_factor = zeros(size(f0));
 A_corrected = zeros(size(A));
-block = handles.sound.block;                  
+block = handles.sound.block;      %block is 0,04            
 step = handles.sound.step;
 N = length(f0);
 
 max_acorr_shift = 0;
 max_acorr_amp = 0;  
 
-% Waitbar stuff
+% Waitbar for visual purpouses
 hwait = waitbar(0,'Correcting pitch...');
 set(hwait,'Name','Please Wait');
 waitbar_count = 0;
@@ -687,69 +611,71 @@ for n = 1:N
     waitbar_count = waitbar_count + 1;
 
     % Pull out a chunk of the signal
-    Atemp = A(I:I+block-1);
+    Atemp = A(I:I+block-1); %same as in pitch detection
     ttemp = t(I:I+block-1);
        
-    if f0(n) > 0 && ~isnan(f0(n))
+    if f0(n) > 0 && ~isnan(f0(n)) %if statement to ensure the frequency isn't empty
         
-        % Calculate the scale factor by which to shift the frequency
+        % find the scale_factor for the given itteration of n.
         scale_factor(n) = f02(n)/f0(n);
     
-        % Interpolate
-        tp = mean(ttemp) + (ttemp-mean(ttemp)).*scale_factor(n);
-        Ainterp = interp1(ttemp,Atemp ,tp)';
-        Ivalid = find(~isnan(Ainterp));
-        Ainterp(isnan(Ainterp)) = 0;
+        % does the interpolation to get new datapoints of the signal.
+        tp = mean(ttemp) + (ttemp-mean(ttemp)).*scale_factor(n); % subtracts the mean of ttemp and adds the scale_factor whereafter it adds the mean of ttemp to get new data points of scaled values
+        Ainterp = interp1(ttemp,Atemp ,tp)'; %does liniar interpolation (interp1(sample point,corresponding value, query point)
+        Ivalid = find(~isnan(Ainterp)); %finds all nonvalid values in Ainterp
+        Ainterp(isnan(Ainterp)) = 0; %puts all nonvalid values to 0
         
-        Nperiod = ceil(1/(f02(n)/Fs));
+        Nperiod = ceil(1/(f02(n)/Fs)); %makes the N for this period, divides the corrected frequency with the sampling rate and then divides with 1 and rounds it to nearest positive number.
     else
-        % No frequency shift
+        % if there is no change in shift run this
         scale_factor(n) = 1;
         Ainterp = Atemp;  
         Ivalid = find(~isnan(Ainterp));
         Nperiod = ceil(1/(Fmin/Fs));
     end
     
-    if n == 1
+    if n == 1       %first itteration of the for loop assign Ainterp the A_corrected values in the form of a matrix indexed from I->I+block-1
         A_corrected(I:I+block-1) = Ainterp;
         
     else
         
-        % Pull out one period of the new waveform
-        Achunk = Ainterp(Ivalid(1):Ivalid(1)+Nperiod-1);
-        factor = sum(abs(Achunk))*2;
+        % Gets a period from the new waveform of the interpolated values
+        Achunk = Ainterp(Ivalid(1):Ivalid(1)+Nperiod-1); %makes a matrix which goes from first invalid->invalid+Nperiod-1
+        factor = sum(abs(Achunk))*2; %set's all values to abselute values and takes the sum *2
         
-        if all(scale_factor(n-1:n) == 1)
+        if all(scale_factor(n-1:n) == 1) %if all numbers are ==1 then skip the next part.
 
         else
 
-            % Start doing correlation
-            max_acorr_amp = 0;
+            %setup variables for autocorrelation
+            max_acorr_amp = 0; 
             max_acorr_shift = 0;
 
-            for Nshift = -round(Nperiod/2)+ (1:Nperiod)
+            for Nshift = -round(Nperiod/2)+ (1:Nperiod) %make Nshift an matrix based on the Nperiod values. 
 
                 % Calculate makeshift autocorrelation
                 acorr = 1-sum(abs(Achunk - A_corrected((I:I+Nperiod-1) + Nshift + Ivalid(1))))./factor;
 
-                if acorr > max_acorr_amp
-                    max_acorr_amp = acorr;
+                if acorr > max_acorr_amp %if the autocorrelation is over 0
+                    max_acorr_amp = acorr; %set the max ammplitude to correlated value
                     max_acorr_shift = Nshift;
                 end
             end
         end
         
-        [what,where] = min(abs(Achunk - ...
+        [what,where] = min(abs(Achunk - ...             %finds the minimum values in correlated values
             A_corrected((I:I+Nperiod-1) + max_acorr_shift + Ivalid(1))));
         
-        if plot_on
+        if plot_on %plot stuff
             Asave = A_corrected((I:I+Nperiod-1) + max_acorr_shift + Ivalid(1));
         end
-        
-        A_corrected((I+where-1:I+length(Ivalid)-1) + max_acorr_shift + Ivalid(1)) = ...
+        %takes the correlated values from where->length of the array and
+        %replace the empty values in Ainterp with the corrected values from
+        %where->end to make the corrected signal complete. 
+        A_corrected((I+where-1:I+length(Ivalid)-1) + max_acorr_shift + Ivalid(1)) = ... 
             Ainterp(Ivalid(where:end));
         
-        if plot_on
+        if plot_on %plot stuff
             tt = 1:length(Achunk);
             figure(1);
             plot(tt,Achunk,tt,Asave,tt,A_corrected((I:I+Nperiod-1) + max_acorr_shift + Ivalid(1)))
@@ -764,12 +690,13 @@ for n = 1:N
 
     end
     
-    I = I+step;
+    I = I+step; %counts I with the step for the next itteration
     
 end
 
+%reset values 
 handles.sound.A_corrected = A_corrected;
-handles.sound.scale_factor = scale_factor;
+initscale_factor = scale_factor;
 
 clear f0 f02 scale factor A A_corrected
 
@@ -779,23 +706,17 @@ end
 
 
 
-% The following function executes when the mouse is clicked on the plot
-
-
-function mouseclick(hObject, eventdata, handles)
+% Function for making the mouse work on the plot
+function mouseclick(hObject, ~, handles)
 
 
 if isempty(handles.sound.f0)
     return
 end
 
-% keytype = get(gcf,'CurrentCharacter');
-%
-% if keytype == 's'
-
 if handles.status.ismousezoom
     
-    % Zoom with mouse 
+  
     
     point1 = get(gca,'CurrentPoint');    % button down detected
     finalRect = rbbox;                  % return figure units
@@ -892,22 +813,10 @@ end
 guidata(hObject, handles);
 handles = update_plot(handles);
 
-% The following function makes nothing happen when you press a key
-function nokeyresponse(hObject, eventdata, handles)
+% ensures no keyboard input
+function nokeyresponse(hObject, ~, ~)
 
-function wbucb(hObject, eventdata, handles)
-if handles.single_point
-    handles.sound.selected_points(:) = false;
-
-end
-guidata(hObject, handles);
-handles = update_plot(handles);
-set(gcf,'WindowButtonMotionFcn','');
-set(gcf,'WindowButtonUpFcn','');
-
-
-
-function [f0,acorr,Nshifts,Tshifts] = find_f0_timedomain2(A,Fs,Fmin,Fmax,...
+function [f0,acorr,Nshifts,Tshifts] = find_f0_timedomain(A,Fs,Fmin,Fmax,...
     threshold_amp,threshold_ratio,harmonic_deviation,target_f0,target_tol)
 
 % This function calculates the fundamental frequency of a signal in the
@@ -981,7 +890,7 @@ Tshifts = [];
 Nshift_min = floor(1/(Fmax/Fs));
 Nshift_max = ceil(1/(Fmin/Fs));
 if Nshift_max+Nshift_min > length(A) || Nshift_min >= Nshift_max
-    disp('Error in find_f0_timedomain2.m: Chunk size must be larger!')
+    disp('Error in find_f0_timedomain.m: Chunk size must be larger!')
     return
 end
 
@@ -1033,12 +942,7 @@ maxX_fit = maxX_fit(Ipeak);
 
 % If only 1 or zero peaks remain, return
 N = length(Ipeak);
-% if N == 1
-%     f0 = 1./maxX_fit;
-%     return
-% elseif N == 0
-%     return
-% end
+
 if N < 2
     return
 end
@@ -1062,8 +966,7 @@ end
 
 % Now keep only the harmonic that is closest to the desired harmonic
 if isempty(target_f0)
-%    f0 = 1./maxX_fit(end);
-%    return
+
 else
     f0_error = abs(possible_f0./target_f0 - 1);
     [what,where] = min(f0_error);
@@ -1212,20 +1115,9 @@ for n = 1:length(Imax);
     end
 end
 
-function [indices,freqs,notes,fund_index] = get_scale(~)
+function [indices,freqs,notes] = get_scale(~)
 
-fund_index = [];
 indices = [];
-
-major_indices = [0 2 4 5 7 9 11];
-minor_indices = [0 2 3 5 7 8 10];
-
-fund_indices = [0 2 3 5 7 8 10];
-fund_notes = {'A' 'B' 'C' 'D' 'E' 'F' 'G'};
-scale_types = {'major','minor'};
-
-
-
 
 indices = [indices-12 indices indices+12 indices+24 indices+36];
 indices = indices(indices >=0 & indices <=48);
