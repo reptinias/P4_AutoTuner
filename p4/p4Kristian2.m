@@ -260,42 +260,42 @@ global precision
 
 handles.status.isrecording = true;
 
-while handles.status.isrecording == true
     
-    try
-        handles.record_obj = audiorecorder(initFs,...
-        nbits,nchans);
-        record(handles.record_obj);
-        handles.sound.A = getaudiodata(handles.record_obj,...
-        precision);
-        A = handles.sound.A;
-        p = audioplayer(A, handles.sound.Fs); 
-        play(p);
-    end
+
+handles.record_obj = audiorecorder(initFs,...
+nbits,nchans);
+set(handles.record_obj,'TimerPeriod',1,'TimerFcn',{@audioTimer});
+record(handles.record_obj);
+handles.sound.A = getaudiodata(handles.record_obj,...
+precision);
+A = handles.sound.A;
+p = audioplayer(A, handles.sound.Fs); 
+play(p);
+
     
-    % Save sampling frequency
-    %handles.sound.Fs = initFs;
+% Save sampling frequency
+%handles.sound.Fs = initFs;
     
-    % Calculate time vector
-    %handles.sound.t = (0:length(handles.sound.A)-1)./initFs;
+% Calculate time vector
+%handles.sound.t = (0:length(handles.sound.A)-1)./initFs;
         
-    %handles = run_pitch_detection(handles);
-    handles.status.isview = true;
-    %handles = update_plot(handles);
-    handles = update_GUI(handles);
-    %guidata(hObject, handles);
+%handles = run_pitch_detection(handles);
+handles.status.isview = true;
+%handles = update_plot(handles);
+handles = update_GUI(handles);
+%guidata(hObject, handles);
         
-    %handles = run_pitch_correction(handles);
+%handles = run_pitch_correction(handles);
     
-    %handles.status.isview = true;
-    %handles = update_plot(handles);
-    %handles = update_GUI(handles);
-    guidata(hObject, handles);
+%handles.status.isview = true;
+%handles = update_plot(handles);
+%handles = update_GUI(handles);
+guidata(hObject, handles);
     
     
 
 
-end
+
 
 
 % --- Executes on button press in stop_button.
