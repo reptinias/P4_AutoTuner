@@ -13,7 +13,7 @@ recObj = audiorecorder(Fs,16,1);
 printLCD(lcd,'Start singing'); %print on LCD screen
 
 
-%begin for loop for 30 seconds only (this is for testing)
+%begin for loop for 30 seconds only (this is for testing, can just be set to inf for final product)
 for i=1:30
     
     recordblocking(recObj, T); %stop the recording at interval T
@@ -54,7 +54,7 @@ for i=1:30
                      "LockPhase",lockPhase);
         printLCD(lcd,'Pitch decrease');
         sound(audioOut,Fs)
-      %if no buttons are  
+      %if no buttons are pressed the play original sound  
     elseif pinstatus1 == 0 && pinstatus2 == 0
        printLCD(lcd,'original'); 
        sound(sig,Fs)
