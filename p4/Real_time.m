@@ -57,6 +57,6 @@ for i=1:30
       %if no buttons are pressed the play original sound  
     elseif pinstatus1 == 0 && pinstatus2 == 0
        printLCD(lcd,'original'); 
-       sound(sig,Fs)
+       sound(audio,Fs)
     end
 end
